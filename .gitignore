@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Training output: checkpoints, VecNormalize stats, TensorBoard logs, eval dumps
+# (868 MB, regenerable; publish final models via releases instead)
+runs/
+
+# Scratch / backups
+temp/
+*.bak
+*.tmp
+
+# Stray JS deps (not part of this project)
+node_modules/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets
+.streamlit/secrets.toml

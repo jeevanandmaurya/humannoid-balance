@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Humanoid Balance & Push Recovery — Jeevanand Maurya</title>
+  <meta name="description" content="Personal project notes and Model Card on training a 17-DoF humanoid biped to balance and recover from 100N lateral pushes across v1 to v3 using PPO.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>J</text></svg>">
+
+  <!-- Fonts: Anthropic-style typography stack -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- KaTeX for crisp LaTeX Math Rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '$', right: '$', display: false}
+      ],
+      throwOnError: false
+    });"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root {
+      --bg-canvas: #faf9f5;
+      --bg-surface: #ffffff;
+      --bg-surface-subtle: #f5f3ec;
+      --bg-surface-inset: #edeae2;
+      --text-ink: #141413;
+      --text-body: #343330;
+      --text-muted: #6b6a65;
+      --text-dim: #9c9a91;
+      --border-light: #e8e6dc;
+      --border-dark: #141413;
+      
+      --accent-clay: #d97757;
+      --accent-forest: #4a7c59;
+      --accent-crimson: #a8423f;
+      --accent-sky: #4f7cac;
+
+      /* Chart line colors — maximally distinct */
+      --chart-v1: #d62728;
+      --chart-v2: #1b9e77;
+      --chart-v3: #7570b3;
+
+      --font-serif: "Lora", Georgia, serif;
+      --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "JetBrains Mono", Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-canvas);
+      color: var(--text-body);
+      font-family: var(--font-serif);
+      font-size: 17px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Custom Anthropic-style Scrollbar */
+    html {
+      scrollbar-width: thin;
+      scrollbar-color: #d1cfc7 var(--bg-canvas);
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg-canvas);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background-color: #d1cfc7;
+      border-radius: 4px;
+      border: 2px solid var(--bg-canvas);
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: #b3b0a6;
+    }
+
+    /* Main Container */
+    main.article-container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 3.5rem 1.25rem 5rem;
+    }
+
+    /* Article Header */
+    .article-kicker {
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-clay);
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+
+    h1.article-title {
+      font-family: var(--font-sans);
+      font-size: clamp(2rem, 4vw, 2.9rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.18;
+      color: var(--text-ink);
+      margin-bottom: 1.25rem;
+    }
+
+    .author-strip {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1.25rem;
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .author-strip a {
+      color: var(--text-ink);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .author-strip a:hover {
+      text-decoration: underline;
+    }
+
+    .article-summary {
+      font-size: 1.15rem;
+      line-height: 1.65;
+      color: var(--text-body);
+      margin-bottom: 2.5rem;
+    }
+
+    /* Quick Specs Grid */
+    .quick-specs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: 4px;
+      padding: 1.25rem;
+      margin-bottom: 3.5rem;
+      font-family: var(--font-sans);
+    }
+
+    @media (max-width: 680px) {
+      .quick-specs {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .spec-item .spec-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+      margin-bottom: 0.2rem;
+    }
+
+    .spec-item .spec-val {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text-ink);
+    }
+
+    .spec-item .spec-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Headings */
+    h2 {
+      font-family: var(--font-sans);
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-ink);
+      margin-top: 3.25rem;
+      margin-bottom: 0.9rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    h3 {
+      font-family: var(--font-sans);
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-ink);
+      margin-top: 1.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    p {
+      margin-bottom: 1.25rem;
+    }
+
+    ul, ol {
+      margin-bottom: 1.25rem;
+      padding-left: 1.4rem;
+    }
+
+    li {
+      margin-bottom: 0.35rem;
+    }
+
+    /* Model Card Table */
+    .model-card-box {
+      margin: 1.75rem 0 2.5rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .model-card-header {
+      background: var(--bg-surface-subtle);
+      border-bottom: 1px solid var(--border-light);
+      padding: 0.75rem 1.1rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-ink);
+    }
+
+    .card-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-sans);
+      font-size: 0.88rem;
+    }
+
+    .card-table th,
+    .card-table td {
+      padding: 0.85rem 1.1rem;
+      border-bottom: 1px solid var(--border-light);
+      text-align: left;
+      vertical-align: top;
+      line-height: 1.55;
+    }
+
+    .card-table tr:last-child th,
+    .card-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .card-table th {
+      width: 25%;
+      color: var(--text-muted);
+      font-weight: 600;
+      background: var(--bg-surface-subtle);
+    }
+
+    /* Media Demonstration Grid */
+    .media-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin: 1.75rem 0 2.25rem;
+    }
+
+    @media (max-width: 680px) {
+      .media-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .media-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .media-card img {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      object-fit: cover;
+      display: block;
+      background: #141413;
+    }
+
+    .media-caption {
+      padding: 0.85rem 1rem;
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      border-top: 1px solid var(--border-light);
+      color: var(--text-muted);
+    }
+
+    .media-caption strong {
+      display: block;
+      color: var(--text-ink);
+      font-size: 0.88rem;
+      margin-bottom: 0.2rem;
+    }
+
+    /* Keyframes Triple Strip */
+    .keyframes-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.85rem;
+      margin-bottom: 2rem;
+    }
+
+    @media (max-width: 680px) {
+      .keyframes-strip {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .keyframe-item {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .keyframe-item img {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      display: block;
+    }
+
+    .keyframe-desc {
+      padding: 0.65rem 0.85rem;
+      font-family: var(--font-sans);
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border-light);
+    }
+
+    /* Version Flow (v1 - v3) */
+    .version-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+      margin: 1.75rem 0 2.5rem;
+    }
+
+    .version-row {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-left: 3px solid var(--border-dark);
+      padding: 1.15rem 1.25rem;
+      border-radius: 0 4px 4px 0;
+    }
+
+    .version-row.v1 { border-left-color: var(--accent-crimson); }
+    .version-row.v2 { border-left-color: var(--accent-sky); }
+    .version-row.v3 { border-left-color: var(--accent-clay); }
+
+    .version-row-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-family: var(--font-sans);
+      margin-bottom: 0.4rem;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .version-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text-ink);
+    }
+
+    .version-badge {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 3px;
+    }
+
+    .badge-fail { background: #fcf1f1; color: var(--accent-crimson); }
+    .badge-ok { background: #edf5f0; color: var(--accent-forest); }
+
+    .version-desc {
+      font-size: 0.92rem;
+      color: var(--text-body);
+      line-height: 1.6;
+    }
+
+    .version-stats {
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--text-dim);
+      margin-top: 0.5rem;
+    }
+
+    /* Chart Container */
+    .chart-box {
+      margin: 2rem 0 2.5rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: 4px;
+      padding: 1.25rem;
+    }
+
+    .chart-tabs {
+      display: flex;
+      gap: 0.4rem;
+      margin-bottom: 1rem;
+      font-family: var(--font-sans);
+    }
+
+    .chart-tab-btn {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      padding: 0.35rem 0.75rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .chart-tab-btn:hover {
+      background: var(--bg-surface-subtle);
+      color: var(--text-ink);
+    }
+
+    .chart-tab-btn.active {
+      background: var(--text-ink);
+      color: var(--bg-canvas);
+      border-color: var(--text-ink);
+    }
+
+    .chart-canvas-wrap {
+      position: relative;
+      height: 320px;
+      width: 100%;
+    }
+
+    .chart-note {
+      font-family: var(--font-sans);
+      font-size: 0.76rem;
+      color: var(--text-dim);
+      margin-top: 0.75rem;
+      border-top: 1px solid var(--border-light);
+      padding-top: 0.5rem;
+    }
+
+    /* Code Blocks */
+    pre, code {
+      font-family: var(--font-mono);
+      font-size: 0.84rem;
+    }
+
+    pre {
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-light);
+      padding: 1rem 1.2rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      margin: 1.25rem 0;
+      line-height: 1.5;
+      color: var(--text-ink);
+    }
+
+    p code, li code {
+      background: var(--bg-surface-inset);
+      padding: 0.15rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.84em;
+      color: var(--text-ink);
+    }
+
+    /* Author Footer */
+    footer.site-footer {
+      border-top: 1px solid var(--border-light);
+      padding-top: 2.5rem;
+      margin-top: 4rem;
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .author-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: 4px;
+      padding: 1.25rem;
+      margin-bottom: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .author-card-title {
+      font-weight: 700;
+      color: var(--text-ink);
+      font-size: 0.95rem;
+    }
+
+    .author-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      font-size: 0.82rem;
+      margin-top: 0.25rem;
+    }
+
+    .author-links a {
+      color: var(--text-ink);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .author-links a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <main class="article-container">
+    
+    <div class="article-kicker">Personal Project &middot; Reinforcement Learning</div>
+    <h1 class="article-title">Humanoid Standing Balance &amp; 100N Push Recovery</h1>
+
+    <div class="author-strip">
+      <span>By <a href="https://jeevanandmaurya.github.io/">Jeevanand Maurya</a> (BTech CSE-AI, Lucknow University)</span>
+      <span>&middot;</span>
+      <span><a href="https://jeevanandmaurya.github.io/">Website</a></span>
+      <span>&middot;</span>
+      <span><a href="https://github.com/jeevanandmaurya">GitHub</a></span>
+      <span>&middot;</span>
+      <span><a href="https://www.linkedin.com/in/jeevanandmaurya/">LinkedIn</a></span>
+    </div>
+
+    <p class="article-summary">
+      This is a write-up of my project on training a 17-actuator bipedal humanoid to maintain stationary balance and recover from unexpected horizontal pushes. I trained the agent using Proximal Policy Optimization (PPO) and iterated across three distinct reward phases (v1 to v3). The best performing model is v3 (origin-locked balance, 50M steps).
+    </p>
+
+    <!-- Quick Stats -->
+    <div class="quick-specs">
+      <div class="spec-item">
+        <div class="spec-label">Max Lateral Push</div>
+        <div class="spec-val">100 N</div>
+        <div class="spec-sub">Multi-directional impulse</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">Survival Rate</div>
+        <div class="spec-val">1,000 / 1,000</div>
+        <div class="spec-sub">Full episode completion</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">Total Steps Trained</div>
+        <div class="spec-val">50.0M+</div>
+        <div class="spec-sub">Across 12 parallel envs</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-label">Observation Space</div>
+        <div class="spec-val">367-D</div>
+        <div class="spec-sub">Kinematics + force + action</div>
+      </div>
+    </div>
+
+    <!-- MODEL CARD SECTION -->
+    <section id="model-card">
+      <h2>Model Card: Humanoid-Balance-v3 (Best)</h2>
+      <p>
+        System specifications, observation space topology, curriculum disturbance schedule, and operational limits of the trained balance policy.
+      </p>
+
+      <div class="model-card-box">
+        <div class="model-card-header">Model Details &middot; PPO Actor-Critic</div>
+        <table class="card-table">
+          <tbody>
+            <tr>
+              <th>Architecture</th>
+              <td>
+                Continuous Actor-Critic MLP. The actor network has 2 hidden layers with 64 units each and Tanh activations. Outputs continuous torque values for 17 actuated joints, bound to <code>[-0.4, 0.4]</code>.
+              </td>
+            </tr>
+            <tr>
+              <th>Task</th>
+              <td>
+                Maintain stationary upright bipedal stance, lock root position near origin, and absorb random horizontal impulses up to 100N without stepping or falling.
+              </td>
+            </tr>
+            <tr>
+              <th>Observation Space (367-D)</th>
+              <td>
+                <ul>
+                  <li><strong>Base MuJoCo Kinematics (348-D):</strong> 22 joint positions, 23 joint velocities, 140 body inertia terms, 84 body velocities, 17 actuator reaction forces, and 84 external contact forces.</li>
+                  <li><strong>Disturbance Force (2-D):</strong> Immediate horizontal push vector $(F_x, F_y)$.</li>
+                  <li><strong>Previous Action (17-D):</strong> Control vector from step $t-1$ to enforce action smoothness.</li>
+                </ul>
+              </td>
+            </tr>
+            <tr>
+              <th>Disturbance Curriculum</th>
+              <td>
+                <ul>
+                  <li><strong>v1 Baseline (0N):</strong> No pushes — basic standing balance only.</li>
+                  <li><strong>v2 (50N):</strong> Light 50N pushes, spaced 200 simulation steps apart.</li>
+                  <li><strong>v3 Best (100N):</strong> Pushes up to 100N with origin-locked drift penalty.</li>
+                </ul>
+              </td>
+            </tr>
+            <tr>
+              <th>Training Setup</th>
+              <td>
+                Gymnasium <code>Humanoid-v5</code> with MuJoCo 3.12, Stable-Baselines3 PPO, and 12 parallel environments (<code>SubprocVecEnv</code>). Trained locally on an RTX 3050 Laptop GPU / AMD Ryzen 5.
+              </td>
+            </tr>
+            <tr>
+              <th>Failure Condition</th>
+              <td>
+                Termination triggers if torso center-of-mass height drops below $z &lt; 0.8\text{m}$ (nominal height is $1.4\text{m}$) or torso tilt exceeds $60^\circ$ after a 100-step grace period.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MEDIA SHOWCASE -->
+    <section id="media">
+      <h2>Visual Demos &amp; Push Recovery</h2>
+      <p>
+        Here is the visual difference between the baseline adaptation (v1) and the v3 converged policy under external pushes.
+      </p>
+
+      <div class="media-grid">
+        <div class="media-card">
+          <img src="assets/media/v1_fall_demo.gif" alt="v1 fall demo" onerror="this.src='assets/media/v1_baseline_fall.png'">
+          <div class="media-caption">
+            <strong>v1 Baseline: Instant Collapse</strong>
+            Without joint velocity damping and action smoothing, a 150 N shove at t &asymp; 0.75 s topples the robot &mdash; it lands flat and never gets up.
+          </div>
+        </div>
+        <div class="media-card">
+          <img src="assets/media/v3_recovery_demo.gif" alt="v3 recovery demo" onerror="this.src='assets/media/versions/v3_best.gif'">
+          <div class="media-caption">
+            <strong>v3 Policy: Push Recovery</strong>
+            The v3 policy uses coordinated ankle and hip counter-torques to absorb horizontal impacts and return to the origin.
+          </div>
+        </div>
+      </div>
+
+      <div class="keyframes-strip">
+        <div class="keyframe-item">
+          <img src="assets/media/versions/v1_final_fall.png" alt="v1 final collapse">
+          <div class="keyframe-desc">1. v1 final — unstable collapse under push.</div>
+        </div>
+        <div class="keyframe-item">
+          <img src="assets/media/versions/v2_final_balanced.png" alt="v2 stable stance">
+          <div class="keyframe-desc">2. v2 final — survives repeated shoves but drifts sideways.</div>
+        </div>
+        <div class="keyframe-item">
+          <img src="assets/media/versions/v3_best_final.png" alt="v3 origin-locked stance">
+          <div class="keyframe-desc">3. v3 best — rides out repeated 150N shoves without drifting.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ITERATIONS (v1 to v3) -->
+    <section id="iterations">
+      <h2>How I Improved It: From v1 to v3</h2>
+      <p>
+        Getting standing balance to work took several distinct iterations to solve joint chattering, lateral drifting, and fall recovery.
+      </p>
+
+      <div class="version-flow">
+        <div class="version-row v1">
+          <div class="version-row-header">
+            <span class="version-title">v1: Baseline Locomotion Wrapper</span>
+            <span class="version-badge badge-fail">Fell in ~74 steps</span>
+          </div>
+          <div class="version-desc">
+            The default Gymnasium Humanoid reward is built for running forward. In v1, I zeroed the forward reward and added an alive bonus. But without temporal action damping, the actuators oscillated violently and the robot collapsed under even a light 50N push.
+          </div>
+          <div class="version-stats">Observation: 350-D &middot; Mean Episode Duration: 63.6 steps &middot; Reward: ~531</div>
+        </div>
+
+        <div class="version-row v2">
+          <div class="version-row-header">
+            <span class="version-title">v2: Action Buffer &amp; Smoothness Penalty</span>
+            <span class="version-badge badge-ok">First 1,000-Step Survival</span>
+          </div>
+          <div class="version-desc">
+            I appended the previous action vector $a_{t-1}$ to the observation space (expanding it to 367-D) and introduced a temporal action change penalty: $-0.02 \sum |a_t - a_{t-1}|$. This cut down high-frequency flutter and allowed the policy to survive light pushes for full 1,000-step episodes.
+          </div>
+          <div class="version-stats">Observation: 367-D &middot; Mean Episode Duration: 1000.0 steps &middot; Reward: ~10,195</div>
+        </div>
+
+        <div class="version-row v3">
+          <div class="version-row-header">
+            <span class="version-title">v3: Origin Anchoring &amp; Drift Cost</span>
+            <span class="version-badge badge-ok">Best Model</span>
+          </div>
+          <div class="version-desc">
+            In v2, the robot learned to skate laterally to absorb pushes rather than standing its ground. In v3, I added a quadratic drift penalty: $-5.0 \cdot \|p_{\text{torso}, xy} - p_{\text{target}, xy}\|^2$, forcing the robot to push back toward its starting position.
+          </div>
+          <div class="version-stats">Observation: 367-D &middot; Mean Episode Duration: 1000.0 steps &middot; Reward: ~10,171</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VERSION VISUAL COMPARISON -->
+    <section id="visual-comparison">
+      <h2>Visual Comparison: Free Fall to Trained Policy</h2>
+      <p>
+        Each image captures the humanoid's posture at its final trained checkpoint. From left to right: the untrained free fall baseline, v1's unstable collapse, v2's first stable stance, and v3's origin-locked balance (best).         All four clips run 8.0&nbsp;s at 25&nbsp;fps with a burned-in sim timer &mdash; they start at t&nbsp;=&nbsp;0 together and loop together, so falls and recoveries are directly comparable. v2 and v3 take the same three 150&nbsp;N shoves: v2 absorbs them but skates sideways, while v3 stays locked to its origin.
+      </p>
+
+      <style>
+        .version-gallery {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 1rem;
+          margin: 1.5rem 0 2rem;
+        }
+        .version-gallery-item {
+          text-align: center;
+        }
+        .version-gallery-item img {
+          width: 100%;
+          border-radius: 6px;
+          border: 1px solid var(--border-light);
+          aspect-ratio: 1;
+          object-fit: cover;
+        }
+        .version-gallery-item .vg-label {
+          font-family: var(--font-sans);
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text-ink);
+          margin-top: 0.5rem;
+          display: block;
+        }
+        .version-gallery-item .vg-sub {
+          font-family: var(--font-sans);
+          font-size: 11px;
+          color: var(--text-muted);
+          display: block;
+          margin-top: 0.15rem;
+        }
+        .version-gallery-item.vg-best img {
+          border: 2px solid var(--accent-clay);
+        }
+        @media (max-width: 700px) {
+          .version-gallery {
+            grid-template-columns: repeat(3, 1fr);
+          }
+        }
+        @media (max-width: 450px) {
+          .version-gallery {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+      </style>
+
+      <div class="version-gallery">
+        <div class="version-gallery-item">
+          <img src="assets/media/versions/step0_free_fall.gif" alt="Untrained free fall">
+          <span class="vg-label">Step 0</span>
+          <span class="vg-sub">Untrained free fall</span>
+        </div>
+        <div class="version-gallery-item">
+          <img src="assets/media/versions/v1_final.gif" alt="v1 final">
+          <span class="vg-label">v1 Final (8.5M)</span>
+          <span class="vg-sub">Toppled by 150N shove</span>
+        </div>
+        <div class="version-gallery-item">
+          <img src="assets/media/versions/v2_final.gif" alt="v2 final">
+          <span class="vg-label">v2 Final (50M)</span>
+          <span class="vg-sub">Survives 150N&times;3, skates sideways</span>
+        </div>
+        <div class="version-gallery-item vg-best">
+          <img src="assets/media/versions/v3_best.gif" alt="v3 best final">
+          <span class="vg-label">v3 Best (50M)</span>
+          <span class="vg-sub">Holds origin under 150N&times;3</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ALL 3 VERSIONS GRAPH -->
+    <section id="graph">
+      <h2>Evaluation Graphs (All 3 Versions)</h2>
+      <p>
+        These curves plot real evaluation data across all three iterations logged during training:
+      </p>
+
+      <div class="chart-box">
+        <div class="chart-tabs">
+          <button class="chart-tab-btn active" id="tabReward">Evaluation Reward (v1&ndash;v3)</button>
+          <button class="chart-tab-btn" id="tabSurvival">Episode Survival Duration</button>
+          <button class="chart-tab-btn" id="tabPush">Push Resistance (N)</button>
+        </div>
+
+        <div class="chart-canvas-wrap">
+          <canvas id="benchmarkChart"></canvas>
+        </div>
+
+        <div class="chart-note">
+          Logged from <code>runs/humanoid_balance*/eval/evaluations.npz</code> and TensorBoard event logs (refreshed 2026-09-03). v1 failed early; v2 and v3 reached 50M steps with v3 as the best origin-locked model.
+        </div>
+      </div>
+    </section>
+
+    <!-- REWARD FORMULATION -->
+    <section id="formulation">
+      <h2>Reward Formulation (v3 Best)</h2>
+      <p>
+        The step reward $R_t$ balances posture stability, energy efficiency, and impulse recovery:
+      </p>
+      <div class="math-block" style="background: var(--bg-surface-subtle); border: 1px solid var(--border-light); border-radius: 4px; padding: 1.25rem 1rem; margin: 1.25rem 0; overflow-x: auto;">
+        $$\begin{aligned}
+        R_t = \; & w_{\text{alive}} \cdot \mathbb{I}(\text{upright}) \\
+        & + w_{\text{upright}} \cdot (z_{\text{torso}} \cdot z_{\text{up}}) \\
+        & + w_{\text{height}} \cdot \exp\left(-10.0 \, (z_{\text{torso}} - 1.4)^2\right) \\
+        & + w_{\text{feet}} \cdot \exp\left(-40.0 \, \big((z_{\text{rfoot}} - 0.17)^2 + (z_{\text{lfoot}} - 0.17)^2\big)\right) \\
+        & - w_{\text{vel}} \cdot \|v_{\text{root}}\|^2 - w_{\text{ang}} \cdot \|\omega_{\text{root}}\|^2 \\
+        & - w_{\text{smooth}} \cdot \|a_t - a_{t-1}\|_1 - w_{\text{drift}} \cdot \|p_{\text{torso}, xy} - p_{\text{target}, xy}\|^2 \\
+        & + w_{\text{posture}} \cdot \exp\left(-3.0 \, \text{MSE}(q_{\text{joints}}, q_{\text{nominal}})\right) \\
+        & - w_{\text{jointvel}} \cdot \text{MSE}(\dot{q}_{\text{joints}}, 0)
+        \end{aligned}$$
+      </div>
+    </section>
+
+    <!-- SIM-TO-SIM -->
+    <section id="sim2sim">
+      <h2>Sim-to-Sim: MuJoCo, PyBullet &amp; Brax</h2>
+      <p>
+        To ensure the policy wasn't exploiting MuJoCo-specific solver quirks:
+      </p>
+      <ul>
+        <li><strong>PyBullet Shadow Run:</strong> Loaded the identical <code>humanoid.xml</code> model in PyBullet and passed simulated joint states through a MuJoCo forward pass. The policy remained standing with zero fine-tuning.</li>
+        <li><strong>Brax Pipeline Test:</strong> Brax outputs 244 kinematic dimensions and lacks external contact force sensors (<code>cfrc_ext</code>). Zero-padding the missing features still yielded a stable stance, confirming that the policy relies primarily on joint kinematics.</li>
+      </ul>
+    </section>
+
+    <!-- FOOTER & BIO -->
+    <footer class="site-footer">
+      <div class="author-card">
+        <div class="author-card-title">About the Author</div>
+        <p style="font-size: 0.88rem; margin-bottom: 0.5rem;">
+          <strong>Jeevanand Maurya</strong> &mdash; BTech CSE-AI at Lucknow University (Batch 2024&ndash;28). Aspiring AI Engineer &amp; Full-Stack Developer. I learn by building AI systems, web apps, and things in between.
+        </p>
+        <div class="author-links">
+          <a href="https://jeevanandmaurya.github.io/">Website</a>
+          <a href="https://github.com/jeevanandmaurya">GitHub</a>
+          <a href="https://www.linkedin.com/in/jeevanandmaurya/">LinkedIn</a>
+        </div>
+      </div>
+      <p>&copy; 2026 Jeevanand Maurya &middot; Humanoid Balance RL</p>
+    </footer>
+
+  </main>
+
+  <script>
+    // 100% of all recorded evaluation points (Recovered across all training runs from 0.5M to 50M steps)
+    const v1Data = [{"x": 0.5, "y": 638.54, "len": 74.8}, {"x": 1.0, "y": 876.42, "len": 102.4}, {"x": 1.5, "y": 775.53, "len": 87.8}, {"x": 2.0, "y": 1789.74, "len": 199.4}, {"x": 2.5, "y": 1060.17, "len": 121.6}, {"x": 3.0, "y": 1414.74, "len": 158.4}, {"x": 3.5, "y": 643.7, "len": 74.0}, {"x": 4.0, "y": 621.57, "len": 74.0}, {"x": 4.5, "y": 835.82, "len": 98.4}, {"x": 5.0, "y": 988.44, "len": 113.4}, {"x": 5.5, "y": 850.57, "len": 101.2}, {"x": 6.0, "y": 926.38, "len": 109.0}, {"x": 6.5, "y": 778.88, "len": 91.6}, {"x": 7.0, "y": 1058.29, "len": 123.4}, {"x": 7.5, "y": 728.41, "len": 86.8}, {"x": 8.0, "y": 700.37, "len": 84.4}, {"x": 8.5, "y": 530.79, "len": 63.6}];
+    const v2Data = [{"x": 0.5, "y": 1152.84, "len": 121.8}, {"x": 1.0, "y": 985.69, "len": 107.2}, {"x": 1.5, "y": 1946.42, "len": 206.0}, {"x": 2.0, "y": 8155.39, "len": 850.4}, {"x": 2.5, "y": 9674.13, "len": 1000.0}, {"x": 3.0, "y": 9739.15, "len": 1000.0}, {"x": 3.5, "y": 9766.85, "len": 1000.0}, {"x": 4.0, "y": 9824.71, "len": 1000.0}, {"x": 4.5, "y": 9841.35, "len": 1000.0}, {"x": 5.0, "y": 9837.72, "len": 1000.0}, {"x": 5.5, "y": 9848.26, "len": 1000.0}, {"x": 6.0, "y": 9874.34, "len": 1000.0}, {"x": 6.5, "y": 9897.63, "len": 1000.0}, {"x": 7.0, "y": 9929.75, "len": 1000.0}, {"x": 7.5, "y": 9970.67, "len": 1000.0}, {"x": 8.0, "y": 9995.97, "len": 1000.0}, {"x": 8.5, "y": 10016.47, "len": 1000.0}, {"x": 9.0, "y": 10038.88, "len": 1000.0}, {"x": 9.5, "y": 10013.89, "len": 1000.0}, {"x": 10.0, "y": 9254.3, "len": 923.2}, {"x": 10.5, "y": 10051.29, "len": 1000.0}, {"x": 11.0, "y": 10092.19, "len": 1000.0}, {"x": 11.5, "y": 10093.13, "len": 1000.0}, {"x": 12.0, "y": 10122.95, "len": 1000.0}, {"x": 12.5, "y": 10122.45, "len": 1000.0}, {"x": 13.0, "y": 10127.32, "len": 1000.0}, {"x": 13.5, "y": 10114.69, "len": 1000.0}, {"x": 14.0, "y": 10149.66, "len": 1000.0}, {"x": 14.5, "y": 10166.06, "len": 1000.0}, {"x": 15.0, "y": 10148.47, "len": 1000.0}, {"x": 15.5, "y": 10169.24, "len": 1000.0}, {"x": 16.0, "y": 10191.97, "len": 1000.0}, {"x": 16.5, "y": 10169.8, "len": 1000.0}, {"x": 17.0, "y": 10185.0, "len": 1000.0}, {"x": 17.5, "y": 10210.33, "len": 1000.0}, {"x": 18.0, "y": 10203.77, "len": 1000.0}, {"x": 18.5, "y": 10211.56, "len": 1000.0}, {"x": 19.0, "y": 10207.61, "len": 1000.0}, {"x": 19.5, "y": 10222.24, "len": 1000.0}, {"x": 20.0, "y": 10209.02, "len": 1000.0}, {"x": 20.5, "y": 10226.23, "len": 1000.0}, {"x": 21.0, "y": 10226.22, "len": 1000.0}, {"x": 21.5, "y": 10228.52, "len": 1000.0}, {"x": 22.0, "y": 10228.79, "len": 1000.0}, {"x": 22.5, "y": 10212.44, "len": 1000.0}, {"x": 23.0, "y": 10213.33, "len": 1000.0}, {"x": 23.5, "y": 10224.82, "len": 1000.0}, {"x": 24.0, "y": 10203.56, "len": 1000.0}, {"x": 24.5, "y": 10207.95, "len": 1000.0}, {"x": 25.0, "y": 10194.07, "len": 1000.0}, {"x": 25.5, "y": 10218.1, "len": 1000.0}, {"x": 26.0, "y": 10211.86, "len": 1000.0}, {"x": 26.5, "y": 10205.93, "len": 1000.0}, {"x": 27.0, "y": 10229.83, "len": 1000.0}, {"x": 27.5, "y": 10224.99, "len": 1000.0}, {"x": 28.0, "y": 10224.19, "len": 1000.0}, {"x": 28.5, "y": 10219.02, "len": 1000.0}, {"x": 28.5, "y": 10229.58, "len": 1000.0}, {"x": 29.0, "y": 10230.92, "len": 1000.0}, {"x": 29.5, "y": 10238.13, "len": 1000.0}, {"x": 30.0, "y": 10237.58, "len": 1000.0}, {"x": 30.5, "y": 10235.64, "len": 1000.0}, {"x": 31.0, "y": 10234.84, "len": 1000.0}, {"x": 31.5, "y": 10247.78, "len": 1000.0}, {"x": 32.0, "y": 10239.95, "len": 1000.0}, {"x": 32.5, "y": 10244.75, "len": 1000.0}, {"x": 33.0, "y": 10238.37, "len": 1000.0}, {"x": 33.5, "y": 10248.86, "len": 1000.0}, {"x": 34.0, "y": 10233.84, "len": 1000.0}, {"x": 34.5, "y": 10225.58, "len": 1000.0}, {"x": 35.0, "y": 10241.01, "len": 1000.0}, {"x": 35.5, "y": 10249.88, "len": 1000.0}, {"x": 36.0, "y": 10235.07, "len": 1000.0}, {"x": 36.5, "y": 10237.39, "len": 1000.0}, {"x": 37.0, "y": 10207.04, "len": 1000.0}, {"x": 37.5, "y": 10232.37, "len": 1000.0}, {"x": 38.0, "y": 10218.62, "len": 1000.0}, {"x": 38.5, "y": 10221.78, "len": 1000.0}, {"x": 39.0, "y": 10226.44, "len": 1000.0}, {"x": 39.5, "y": 10220.24, "len": 1000.0}, {"x": 40.0, "y": 10230.25, "len": 1000.0}, {"x": 40.5, "y": 10224.54, "len": 1000.0}, {"x": 41.0, "y": 10201.51, "len": 1000.0}, {"x": 41.5, "y": 10215.1, "len": 1000.0}, {"x": 42.0, "y": 10218.99, "len": 1000.0}, {"x": 42.5, "y": 10228.7, "len": 1000.0}, {"x": 43.0, "y": 10213.15, "len": 1000.0}, {"x": 43.5, "y": 10215.79, "len": 1000.0}, {"x": 44.0, "y": 10214.43, "len": 1000.0}, {"x": 44.5, "y": 10201.33, "len": 1000.0}, {"x": 45.0, "y": 10200.36, "len": 1000.0}, {"x": 45.5, "y": 10193.34, "len": 1000.0}, {"x": 46.0, "y": 10199.56, "len": 1000.0}, {"x": 46.5, "y": 10191.3, "len": 1000.0}, {"x": 47.0, "y": 10189.71, "len": 1000.0}, {"x": 47.5, "y": 10185.27, "len": 1000.0}, {"x": 48.0, "y": 10192.26, "len": 1000.0}, {"x": 48.5, "y": 10197.99, "len": 1000.0}, {"x": 49.0, "y": 10182.87, "len": 1000.0}, {"x": 49.5, "y": 10195.44, "len": 1000.0}, {"x": 50.0, "y": 10194.52, "len": 1000.0}];
+    const v3Data = [{"x": 0.5, "y": 737.89, "len": 100.2}, {"x": 1.0, "y": 1108.09, "len": 127.2}, {"x": 1.5, "y": 1131.2, "len": 152.0}, {"x": 2.0, "y": 1275.21, "len": 339.2}, {"x": 2.5, "y": 2875.6, "len": 329.2}, {"x": 3.0, "y": 9208.22, "len": 1000.0}, {"x": 3.5, "y": 9262.69, "len": 1000.0}, {"x": 4.0, "y": 9661.57, "len": 1000.0}, {"x": 4.5, "y": 9521.26, "len": 1000.0}, {"x": 5.0, "y": 9779.49, "len": 1000.0}, {"x": 5.5, "y": 9696.3, "len": 1000.0}, {"x": 6.0, "y": 9808.2, "len": 1000.0}, {"x": 6.5, "y": 9837.75, "len": 1000.0}, {"x": 7.0, "y": 9860.25, "len": 1000.0}, {"x": 7.5, "y": 9833.79, "len": 1000.0}, {"x": 8.0, "y": 9875.38, "len": 1000.0}, {"x": 8.5, "y": 9917.59, "len": 1000.0}, {"x": 9.0, "y": 9928.58, "len": 1000.0}, {"x": 9.5, "y": 9927.39, "len": 1000.0}, {"x": 10.0, "y": 9897.69, "len": 1000.0}, {"x": 10.5, "y": 9925.45, "len": 1000.0}, {"x": 11.0, "y": 9961.81, "len": 1000.0}, {"x": 11.5, "y": 9985.45, "len": 1000.0}, {"x": 12.0, "y": 10031.43, "len": 1000.0}, {"x": 12.5, "y": 9982.91, "len": 1000.0}, {"x": 13.0, "y": 9869.87, "len": 989.8}, {"x": 13.5, "y": 9998.26, "len": 1000.0}, {"x": 14.0, "y": 10001.64, "len": 1000.0}, {"x": 14.5, "y": 9987.26, "len": 1000.0}, {"x": 15.0, "y": 10025.56, "len": 1000.0}, {"x": 15.5, "y": 10014.77, "len": 1000.0}, {"x": 16.0, "y": 9986.65, "len": 1000.0}, {"x": 16.5, "y": 10014.53, "len": 1000.0}, {"x": 17.0, "y": 10018.23, "len": 1000.0}, {"x": 17.5, "y": 10036.42, "len": 1000.0}, {"x": 18.0, "y": 10055.84, "len": 1000.0}, {"x": 18.5, "y": 9994.53, "len": 1000.0}, {"x": 19.0, "y": 9683.99, "len": 970.0}, {"x": 19.5, "y": 10038.13, "len": 1000.0}, {"x": 20.0, "y": 10047.77, "len": 1000.0}, {"x": 20.5, "y": 10033.63, "len": 1000.0}, {"x": 21.0, "y": 9960.7, "len": 1000.0}, {"x": 21.5, "y": 10028.4, "len": 1000.0}, {"x": 22.0, "y": 10041.6, "len": 1000.0}, {"x": 22.5, "y": 10017.57, "len": 1000.0}, {"x": 23.0, "y": 10049.55, "len": 1000.0}, {"x": 23.5, "y": 10064.75, "len": 1000.0}, {"x": 24.0, "y": 10069.15, "len": 1000.0}, {"x": 24.5, "y": 10065.51, "len": 1000.0}, {"x": 25.0, "y": 10080.04, "len": 1000.0}, {"x": 25.5, "y": 10075.07, "len": 1000.0}, {"x": 26.0, "y": 10088.24, "len": 1000.0}, {"x": 26.5, "y": 10079.07, "len": 1000.0}, {"x": 27.0, "y": 10088.84, "len": 1000.0}, {"x": 27.5, "y": 10078.85, "len": 1000.0}, {"x": 28.0, "y": 10086.81, "len": 1000.0}, {"x": 28.5, "y": 10090.69, "len": 1000.0}, {"x": 29.0, "y": 10102.41, "len": 1000.0}, {"x": 29.5, "y": 10099.16, "len": 1000.0}, {"x": 30.0, "y": 10067.04, "len": 1000.0}, {"x": 30.5, "y": 10064.98, "len": 1000.0}, {"x": 31.0, "y": 10099.23, "len": 1000.0}, {"x": 31.5, "y": 10112.99, "len": 1000.0}, {"x": 32.0, "y": 10129.0, "len": 1000.0}, {"x": 32.5, "y": 10116.25, "len": 1000.0}, {"x": 33.0, "y": 10118.9, "len": 1000.0}, {"x": 33.5, "y": 10135.56, "len": 1000.0}, {"x": 34.0, "y": 10119.41, "len": 1000.0}, {"x": 34.5, "y": 10118.38, "len": 1000.0}, {"x": 35.0, "y": 10104.1, "len": 1000.0}, {"x": 35.5, "y": 10110.84, "len": 1000.0}, {"x": 36.0, "y": 10119.17, "len": 1000.0}, {"x": 36.5, "y": 10130.57, "len": 1000.0}, {"x": 37.0, "y": 10125.09, "len": 1000.0}, {"x": 37.5, "y": 10108.42, "len": 1000.0}, {"x": 38.0, "y": 10106.93, "len": 1000.0}, {"x": 38.5, "y": 10118.25, "len": 1000.0}, {"x": 39.0, "y": 10113.77, "len": 1000.0}, {"x": 39.5, "y": 10116.46, "len": 1000.0}, {"x": 40.0, "y": 10102.7, "len": 1000.0}, {"x": 40.5, "y": 10121.32, "len": 1000.0}, {"x": 41.0, "y": 10133.3, "len": 1000.0}, {"x": 41.5, "y": 10117.07, "len": 1000.0}, {"x": 42.0, "y": 10131.82, "len": 1000.0}, {"x": 42.5, "y": 10178.99, "len": 1000.0}, {"x": 43.0, "y": 10084.57, "len": 1000.0}, {"x": 43.5, "y": 10148.61, "len": 1000.0}, {"x": 44.0, "y": 10147.86, "len": 1000.0}, {"x": 44.5, "y": 10115.29, "len": 1000.0}, {"x": 45.0, "y": 10163.18, "len": 1000.0}, {"x": 45.5, "y": 10150.92, "len": 1000.0}, {"x": 46.0, "y": 10109.8, "len": 1000.0}, {"x": 46.5, "y": 10170.07, "len": 1000.0}, {"x": 47.0, "y": 10164.78, "len": 1000.0}, {"x": 47.5, "y": 10197.27, "len": 1000.0}, {"x": 48.0, "y": 10189.2, "len": 1000.0}, {"x": 48.5, "y": 10176.39, "len": 1000.0}, {"x": 49.0, "y": 10169.84, "len": 1000.0}, {"x": 49.5, "y": 10162.28, "len": 1000.0}, {"x": 50.0, "y": 10171.13, "len": 1000.0}];
+
+    let chartInstance = null;
+
+    function renderChart(mode) {
+      const ctx = document.getElementById('benchmarkChart').getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+
+      const commonScales = {
+        x: {
+          type: 'linear',
+          title: { display: true, text: 'Environment Steps (Millions)', color: '#141413', font: { family: 'Plus Jakarta Sans', size: 11, weight: 600 } },
+          grid: { color: '#e8e6dc' },
+          ticks: { color: '#6b6a65', font: { family: 'Plus Jakarta Sans', size: 10 } }
+        },
+        y: {
+          grid: { color: '#e8e6dc' },
+          ticks: { color: '#6b6a65', font: { family: 'Plus Jakarta Sans', size: 10 } }
+        }
+      };
+
+      let config = {};
+
+      if (mode === 'reward') {
+        config = {
+          type: 'scatter',
+          data: {
+            datasets: [
+              {
+                label: 'v1 (Baseline)',
+                data: v1Data.map(d => ({ x: d.x, y: d.y })),
+                showLine: true,
+                borderColor: '#d62728',
+                borderWidth: 2.5,
+                pointRadius: 0,
+                pointHoverRadius: 5
+              },
+              {
+                label: 'v2 (Action Buffer)',
+                data: v2Data.map(d => ({ x: d.x, y: d.y })),
+                showLine: true,
+                borderColor: '#1b9e77',
+                borderWidth: 2.5,
+                pointRadius: 0,
+                pointHoverRadius: 5
+              },
+              {
+                label: 'v3 (Origin Lock) — Best',
+                data: v3Data.map(d => ({ x: d.x, y: d.y })),
+                showLine: true,
+                borderColor: '#7570b3',
+                borderWidth: 2.5,
+                pointRadius: 0,
+                pointHoverRadius: 5
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { labels: { color: '#141413', font: { family: 'Plus Jakarta Sans', size: 11 } } },
+              tooltip: { backgroundColor: '#141413', padding: 8 }
+            },
+            scales: {
+              ...commonScales,
+              y: {
+                ...commonScales.y,
+                title: { display: true, text: 'Evaluation Return', color: '#141413', font: { family: 'Plus Jakarta Sans', size: 11, weight: 600 } }
+              }
+            }
+          }
+        };
+      } else if (mode === 'survival') {
+        config = {
+          type: 'scatter',
+          data: {
+            datasets: [
+              {
+                label: 'v1 (Baseline)',
+                data: v1Data.map(d => ({ x: d.x, y: d.len })),
+                showLine: true,
+                borderColor: '#d62728',
+                borderWidth: 2.5,
+                pointRadius: 0,
+                pointHoverRadius: 5
+              },
+              {
+                label: 'v2 (Action Buffer)',
+                data: v2Data.map(d => ({ x: d.x, y: d.len })),
+                showLine: true,
+                borderColor: '#1b9e77',
+                borderWidth: 2.5,
+                pointRadius: 0,
+                pointHoverRadius: 5
+              },
+              {
+                label: 'v3 (Origin Lock) — Best',
+                data: v3Data.map(d => ({ x: d.x, y: d.len })),
+                showLine: true,
+                borderColor: '#7570b3',
+                borderWidth: 2.5,
+                pointRadius: 0,
+                pointHoverRadius: 5
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              ...commonScales,
+              y: {
+                ...commonScales.y,
+                max: 1050,
+                title: { display: true, text: 'Episode Length (Steps)', color: '#141413', font: { family: 'Plus Jakarta Sans', size: 11, weight: 600 } }
+              }
+            },
+            plugins: {
+              legend: { labels: { color: '#141413', font: { family: 'Plus Jakarta Sans', size: 11 } } }
+            }
+          }
+        };
+      } else if (mode === 'push') {
+        config = {
+          type: 'bar',
+          data: {
+            labels: ['v1 Baseline', 'v2 Action Buffer', 'v3 Origin Lock (Best)'],
+            datasets: [
+              {
+                label: 'Max Push Force Withstood (Newtons)',
+                data: [0, 50, 100],
+                backgroundColor: ['#d62728', '#1b9e77', '#7570b3']
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: { grid: { display: false }, ticks: { color: '#141413', font: { family: 'Plus Jakarta Sans', size: 11 } } },
+              y: {
+                grid: { color: '#e8e6dc' },
+                ticks: { color: '#6b6a65', font: { family: 'Plus Jakarta Sans', size: 10 } },
+                title: { display: true, text: 'Horizontal Force (N)', color: '#141413', font: { family: 'Plus Jakarta Sans', size: 11, weight: 600 } }
+              }
+            },
+            plugins: {
+              legend: { labels: { color: '#141413', font: { family: 'Plus Jakarta Sans', size: 11 } } }
+            }
+          }
+        };
+      }
+
+      chartInstance = new Chart(ctx, config);
+    }
+
+    function switchChartTab(mode) {
+      document.querySelectorAll('.chart-tab-btn').forEach(btn => btn.classList.remove('active'));
+      if (mode === 'reward') document.getElementById('tabReward').classList.add('active');
+      if (mode === 'survival') document.getElementById('tabSurvival').classList.add('active');
+      if (mode === 'push') document.getElementById('tabPush').classList.add('active');
+      renderChart(mode);
+    }
+
+    document.getElementById('tabReward').addEventListener('click', () => switchChartTab('reward'));
+    document.getElementById('tabSurvival').addEventListener('click', () => switchChartTab('survival'));
+    document.getElementById('tabPush').addEventListener('click', () => switchChartTab('push'));
+
+    window.addEventListener('DOMContentLoaded', () => {
+      renderChart('reward');
+    });
+  </script>
+</body>
+</html>

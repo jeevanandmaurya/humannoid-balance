@@ -1,0 +1,5 @@
+version,label,n_points,max_steps_M,last_reward,best_reward,best_at_M,last_len,max_len,push_N,obs_dim,status,last_updated
+v1,v1 Baseline,17,8.5,530.79,1789.74,2.0,63.6,199.4,0,350,done — collapsed,2026-08-30 19:42
+v2,v2 Action Buffer,101,50.0,10194.52,10249.88,35.5,1000.0,1000.0,50,367,done — first 1000-step survival,2026-09-01 17:57
+v3,v3 Origin Lock (Best),100,50.0,10171.13,10197.27,47.5,1000.0,1000.0,100,367,best model,2026-09-01 15:50
+v4,v4 Curriculum (Exp.),25,12.5,8745.29,8745.29,12.5,1000.0,1000.0,300,367,experimental — updating,2026-09-01 19:43
