@@ -553,6 +553,8 @@
       <span><a href="https://github.com/jeevanandmaurya">GitHub</a></span>
       <span>&middot;</span>
       <span><a href="https://www.linkedin.com/in/jeevanandmaurya/">LinkedIn</a></span>
+      <span>&middot;</span>
+      <span><a href="https://github.com/jeevanandmaurya/humannoid-balance">Repository</a></span>
     </div>
 
     <p class="article-summary">
@@ -848,18 +850,6 @@
       </div>
     </section>
 
-    <!-- SIM-TO-SIM -->
-    <section id="sim2sim">
-      <h2>Sim-to-Sim: MuJoCo, PyBullet &amp; Brax</h2>
-      <p>
-        To ensure the policy wasn't exploiting MuJoCo-specific solver quirks:
-      </p>
-      <ul>
-        <li><strong>PyBullet Shadow Run:</strong> Loaded the identical <code>humanoid.xml</code> model in PyBullet and passed simulated joint states through a MuJoCo forward pass. The policy remained standing with zero fine-tuning.</li>
-        <li><strong>Brax Pipeline Test:</strong> Brax outputs 244 kinematic dimensions and lacks external contact force sensors (<code>cfrc_ext</code>). Zero-padding the missing features still yielded a stable stance, confirming that the policy relies primarily on joint kinematics.</li>
-      </ul>
-    </section>
-
     <!-- FOOTER & BIO -->
     <footer class="site-footer">
       <div class="author-card">
@@ -871,6 +861,7 @@
           <a href="https://jeevanandmaurya.github.io/">Website</a>
           <a href="https://github.com/jeevanandmaurya">GitHub</a>
           <a href="https://www.linkedin.com/in/jeevanandmaurya/">LinkedIn</a>
+          <a href="https://github.com/jeevanandmaurya/humannoid-balance">Project Repo</a>
         </div>
       </div>
       <p>&copy; 2026 Jeevanand Maurya &middot; Humanoid Balance RL</p>
